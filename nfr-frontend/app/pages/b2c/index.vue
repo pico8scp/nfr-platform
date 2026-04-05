@@ -27,7 +27,7 @@
     <header class="main-header" :class="{ scrolled: isScrolled }">
       <div class="header-inner">
         <!-- Logo -->
-        <a href="/" class="logo">NFR</a>
+        <a href="/b2c" class="logo">NFR</a>
 
         <!-- 🏭 B2B 尊贵批发按钮 -->
         <a href="/b2b" class="b2b-btn" title="B2B Wholesale - Business Account">
@@ -1549,8 +1549,7 @@ const products = [
   gap: 16px;
 }
 .product-card-wrap {
-  display: flex;
-  flex-direction: column;
+  display: flex; flex-direction: column; min-height: 460px; height: 460px;
 }
 .product-card {
   display: flex;
@@ -1599,7 +1598,7 @@ const products = [
   align-items: center;
   justify-content: center;
 }
-.product-info { padding: 10px 2px 0; }
+.product-info { padding: 10px 2px 0; flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: auto; }
 .product-name {
   font-size: 12px;
   color: #333;
@@ -1616,7 +1615,7 @@ const products = [
 .product-off { font-size: 11px; font-weight: 600; color: #e60023; }
 
 /* B端批发价引流按钮 */
-.b2b-price-btn {
+.b2b-price-btn { height: 36px; padding: 0 8px; margin-top: 0; flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1888,7 +1887,7 @@ const products = [
   .product-card-wrap { }
   .product-name { font-size: 11px; }
   .product-price { font-size: 13px; }
-  .b2b-price-btn { padding: 4px 6px; font-size: 10px; }
+  .b2b-price-btn { height: 36px; padding: 4px 6px; margin-top: 0; flex-shrink: 0; font-size: 10px; }
   .b2b-price-text strong { font-size: 11px; }
   .load-more { margin-top: 16px; }
   .load-more-btn { padding: 10px 32px; font-size: 12px; }

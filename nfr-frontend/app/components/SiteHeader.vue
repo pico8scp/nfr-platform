@@ -112,8 +112,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useCart } from '~/composables/useCart'
 
 const route = useRoute()
 const router = useRouter()
@@ -133,7 +134,8 @@ const goActivity = () => router.push('/activity')
 const goDistributor = () => router.push('/distributor')
 const setCategory = (cat) => router.push({ path: '/b2c/search', query: cat ? { cat } : {} })
 
-const { totalItems, openCart } = useCart()
+const { items, openCart } = useCart()
+const totalItems = computed(() => items.value.reduce((s, i) => s + i.quantity, 0))
 </script>
 
 <style scoped>

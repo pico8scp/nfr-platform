@@ -369,126 +369,218 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
+import { productsApi, cartApi } from '~/utils/api'
 
 const route = useRoute()
-const router = useRouter()
 
-// ===== 侧边栏分类 =====
-const sideCategories = [
-  { name: 'All Categories', count: '12,500+' },
-  { name: "Women's Fashion", count: '3,200+' },
-  { name: "Men's Fashion", count: '2,100+' },
-  { name: 'Kids & Baby', count: '1,500+' },
-  { name: 'Beauty & Personal Care', count: '1,800+' },
-  { name: 'Electronics', count: '2,400+' },
-  { name: 'Home & Garden', count: '1,900+' },
-  { name: 'Sports & Outdoors', count: '1,200+' },
-  { name: 'Jewelry & Accessories', count: '900+' },
-]
-const selectedCategory = ref('All Categories')
+// ===== 导航分类 =====
+const navCategories = ref(['All', 'Women', 'Men', 'Kids', 'Beauty', 'Electronics', 'Home', 'Sports', 'Jewellery', 'Shoes', 'Bags'])
+const selectedCat = ref(route.query.cat || 'All')
+const selectCat = async (cat) => {
+  selectedCat.value = cat
+  currentPage.value = 1
+  displayedProducts.value = []
+  await loadMoreProducts()
+}
 
-// ===== 筛选数据 =====
-const supplierTypes = ['Manufacturer', 'Trading Company', 'Wholesaler']
-const deliveryDates = [
-  { label: '7 days', days: 7 },
-  { label: '15 days', days: 15 },
-  { label: '30 days', days: 30 },
-]
-const countries = [
-  { code: 'CN', name: 'China', flag: '🇨🇳', count: '8.5k' },
-  { code: 'TR', name: 'Turkey', flag: '🇹🇷', count: '1.2k' },
-  { code: 'IN', name: 'India', flag: '🇮🇳', count: '900' },
-  { code: 'VN', name: 'Vietnam', flag: '🇻🇳', count: '650' },
-  { code: 'US', name: 'USA', flag: '🇺🇸', count: '400' },
-]
-const certifications = ['CE', 'FCC', 'RoHS', 'ISO9001', 'REACH']
+// ===== 搜索 =====
+const searchInput = ref(route.query.q || '')
+const doSearch = () => {
+  if (searchInput.value.trim()) {
+    window.location.href = `/b2c/search?q=${encodeURIComponent(searchInput.value.trim())}`
+  }
+}
 
+// ===== 滚动状态 =====
+const isScrolled = ref(false)
+const onScroll = () => { isScrolled.value = window.scrollY > 60 }
+onMounted(() => window.addEventListener('scroll', onScroll))
+onUnmounted(() => window.removeEventListener('scroll', onScroll))
+
+// ===== 头部购物车 =====
+const cartCount = ref(0)
+const cartOpen = ref(false)
+
+// ===== 左侧折叠面板 =====
+const openSections = ref({
+  price: true,
+  rating: false,
+  shipping: false,
+  promo: false,
+})
+const toggleSection = (name) => {
+  openSections.value[name] = !openSections.value[name]
+}
+
+// ===== 筛选条件 =====
 const filters = ref({
-  tradeAssurance: false,
-  supplierTypes: [],
-  delivery: '',
-  minRating: 0,
   priceMin: null,
   priceMax: null,
-  moq: null,
-  countries: [],
-  certs: [],
+  minRating: 0,
+  freeShipping: false,
+  fastShipping: false,
+  hasDiscount: false,
+  hasBargain: false,
+  hasGroupBuy: false,
+  hasFullReduction: false,
+  dynamicFilters: {},
 })
-
-const applyPriceFilter = () => { /* noop - reactive via v-model */ }
+const applyFilters = async () => {
+  currentPage.value = 1
+  displayedProducts.value = []
+  await loadMoreProducts()
+}
 const clearFilters = () => {
-  filters.value = { tradeAssurance: false, supplierTypes: [], delivery: '', minRating: 0, priceMin: null, priceMax: null, moq: null, countries: [], certs: [] }
-  selectedCategory.value = 'All Categories'
+  filters.value = {
+    priceMin: null, priceMax: null, minRating: 0,
+    freeShipping: false, fastShipping: false,
+    hasDiscount: false, hasBargain: false, hasGroupBuy: false, hasFullReduction: false,
+    dynamicFilters: {},
+  }
+  applyFilters()
 }
 const activeFilterCount = computed(() => {
   let c = 0
-  if (filters.value.tradeAssurance) c++
-  c += filters.value.supplierTypes.length
-  if (filters.value.delivery) c++
-  if (filters.value.minRating > 0) c++
   if (filters.value.priceMin || filters.value.priceMax) c++
-  if (filters.value.moq) c++
-  c += filters.value.countries.length
-  c += filters.value.certs.length
+  if (filters.value.minRating > 0) c++
+  if (filters.value.freeShipping) c++
+  if (filters.value.fastShipping) c++
+  if (filters.value.hasDiscount) c++
+  if (filters.value.hasBargain) c++
+  if (filters.value.hasGroupBuy) c++
+  if (filters.value.hasFullReduction) c++
+  Object.values(filters.value.dynamicFilters).forEach((v: any) => { if (v && v.length > 0) c += v.length })
   return c
 })
 
-// ===== Tab / Sort / View =====
-const activeTab = ref('products')
+// ===== 动态分面 (从API获取) =====
+const dynamicFacets = ref<any[]>([])
+
+// ===== 排序 =====
 const sortBy = ref('relevance')
+const applySort = async () => {
+  currentPage.value = 1
+  displayedProducts.value = []
+  await loadMoreProducts()
+}
+
+// ===== 视图模式 =====
 const viewMode = ref('grid')
-const currentPage = ref(1)
-const perPage = 24
 
-// ===== 商品数据 (阿里风格) =====
-const products = [
-  { id: 1, name: 'Women Boho Floral Maxi Dress — Summer Beach Casual', img: 'https://picsum.photos/seed/ali-p1/400/400', priceMin: '4.50', priceMax: '5.80', moq: 20, off: 35, ad: true, verified: true, easyReturn: true, supplier: 'Guangzhou Yimei Trading Co.', yrs: 8, flag: '🇨🇳', country: 'CN', rating: 4.8, reviews: 234, sold: 1250, views: 3250, delivery: 'May 04', inStock: true, b2bPrice: '3.20', wishlisted: false },
-  { id: 2, name: "Men's Athletic Joggers — Quick-Dry Sports Running Pants", img: 'https://picsum.photos/seed/ali-p2/400/400', priceMin: '6.20', priceMax: '7.50', moq: 50, off: 28, verified: true, supplier: 'Fujian Anta Sports Co.', yrs: 12, flag: '🇨🇳', country: 'CN', rating: 4.6, reviews: 189, sold: 890, views: 2100, delivery: 'Apr 28', inStock: true, b2bPrice: '4.10', wishlisted: false },
-  { id: 3, name: 'Kids Unisex Pajama Set — Soft Cotton Sleepwear 2pc', img: 'https://picsum.photos/seed/ali-p3/400/400', priceMin: '3.80', priceMax: '4.50', moq: 100, off: 42, ad: false, verified: true, easyReturn: true, supplier: 'Hangzhou Kiddo Garment', yrs: 6, flag: '🇨🇳', country: 'CN', rating: 4.9, reviews: 456, sold: 2100, views: 5600, delivery: 'May 04', inStock: true, b2bPrice: '2.50', wishlisted: false },
-  { id: 4, name: 'TWS Bluetooth Earbuds — Active Noise Cancelling 5.3', img: 'https://picsum.photos/seed/ali-p4/400/400', priceMin: '8.90', priceMax: '12.00', moq: 10, off: 52, ad: true, verified: true, supplier: 'Shenzhen Tech Electronics', yrs: 11, flag: '🇨🇳', country: 'CN', rating: 4.7, reviews: 892, sold: 5600, views: 14200, delivery: 'Apr 22', inStock: true, b2bPrice: '5.80', wishlisted: false },
-  { id: 5, name: 'Women Platform Sneakers — Comfort Walking Shoes Casual', img: 'https://picsum.photos/seed/ali-p5/400/400', priceMin: '7.50', priceMax: '9.20', moq: 30, off: 49, verified: false, supplier: 'Wenzhou Fashion Co.', yrs: 5, flag: '🇨🇳', country: 'CN', rating: 4.3, reviews: 67, sold: 340, views: 890, delivery: 'May 04', inStock: true, b2bPrice: '5.20', wishlisted: false },
-  { id: 6, name: 'Gold Plated Jewelry Set — Necklace + Earrings + Bracelet', img: 'https://picsum.photos/seed/ali-p6/400/400', priceMin: '2.10', priceMax: '3.40', moq: 50, off: 55, ad: false, verified: true, easyReturn: true, supplier: 'Yiwu Jiali Accessories', yrs: 9, flag: '🇨🇳', country: 'CN', rating: 4.5, reviews: 321, sold: 4800, views: 9800, delivery: 'Apr 28', inStock: true, b2bPrice: '1.40', wishlisted: false },
-  { id: 7, name: 'Home Decor LED String Lights — Warm White 10m Waterproof', img: 'https://picsum.photos/seed/ali-p7/400/400', priceMin: '1.80', priceMax: '2.50', moq: 200, off: 38, ad: false, verified: true, supplier: 'Ningbo Homelink Lighting', yrs: 7, flag: '🇨🇳', country: 'CN', rating: 4.4, reviews: 178, sold: 8900, views: 22000, delivery: 'May 04', inStock: true, b2bPrice: '1.10', wishlisted: false },
-  { id: 8, name: 'Sports Yoga Mat — Non-Slip Exercise Mat 6mm Thick', img: 'https://picsum.photos/seed/ali-p8/400/400', priceMin: '3.20', priceMax: '4.80', moq: 50, off: 44, ad: false, verified: true, easyReturn: true, supplier: 'Fujian Anta Sports Co.', yrs: 12, flag: '🇨🇳', country: 'CN', rating: 4.7, reviews: 543, sold: 3200, views: 7800, delivery: 'Apr 28', inStock: true, b2bPrice: '2.00', wishlisted: false },
-  { id: 9, name: 'Wireless Charging Pad — Fast Charge 15W Qi Compatible', img: 'https://picsum.photos/seed/ali-p9/400/400', priceMin: '5.50', priceMax: '7.20', moq: 20, off: 33, ad: true, verified: true, supplier: 'Shenzhen Tech Electronics', yrs: 11, flag: '🇨🇳', country: 'CN', rating: 4.6, reviews: 290, sold: 1800, views: 4500, delivery: 'Apr 22', inStock: true, b2bPrice: '3.50', wishlisted: false },
-  { id: 10, name: 'Organic Cotton Baby Onesies — 5 Pack Newborn Romper', img: 'https://picsum.photos/seed/ali-p10/400/400', priceMin: '4.20', priceMax: '5.60', moq: 100, off: 29, ad: false, verified: true, easyReturn: true, supplier: "Hangzhou Kiddo Garment", yrs: 6, flag: '🇨🇳', country: 'CN', rating: 4.8, reviews: 612, sold: 4500, views: 11200, delivery: 'May 04', inStock: true, b2bPrice: '2.80', wishlisted: false },
-  { id: 11, name: 'Silk Hair Scrunchies — 12 Pack Mulberry Silk Scrunchie Set', img: 'https://picsum.photos/seed/ali-p11/400/400', priceMin: '2.80', priceMax: '3.90', moq: 50, off: 41, ad: false, verified: false, supplier: 'Istanbul Moda Tekstil', yrs: 7, flag: '🇹🇷', country: 'TR', rating: 4.4, reviews: 98, sold: 670, views: 1800, delivery: 'Apr 28', inStock: true, b2bPrice: '1.80', wishlisted: false },
-  { id: 12, name: 'Portable Blender USB Rechargeable — 380ml Travel Blender', img: 'https://picsum.photos/seed/ali-p12/400/400', priceMin: '6.80', priceMax: '9.50', moq: 30, off: 47, ad: false, verified: true, easyReturn: true, supplier: 'Shenzhen Tech Electronics', yrs: 11, flag: '🇨🇳', country: 'CN', rating: 4.5, reviews: 445, sold: 2100, views: 6200, delivery: 'Apr 22', inStock: true, b2bPrice: '4.20', wishlisted: false },
-]
+// ===== 悬停卡片ID =====
+const hoveredId = ref<number | null>(null)
 
-// ===== 供应商数据 =====
-const suppliers = [
-  { name: 'Guangzhou Yimei Trading Co., Ltd.', logo: 'https://picsum.photos/seed/supp1/80/80', banner: 'https://picsum.photos/seed/supp1b/400/120', verified: true, yrs: 8, flag: '🇨🇳', country: 'China', category: "Women's Fashion", rating: 4.8, reviews: 234, products: 156, response: '<24h', orders: '1.2k' },
-  { name: 'Shenzhen Tech Electronics Co.', logo: 'https://picsum.photos/seed/supp2/80/80', banner: 'https://picsum.photos/seed/supp2b/400/120', verified: true, yrs: 11, flag: '🇨🇳', country: 'China', category: 'Consumer Electronics', rating: 4.7, reviews: 892, products: 89, response: '<12h', orders: '5.6k' },
-  { name: 'Fujian Anta Sports Co., Ltd.', logo: 'https://picsum.photos/seed/supp3/80/80', banner: 'https://picsum.photos/seed/supp3b/400/120', verified: true, yrs: 12, flag: '🇨🇳', country: 'China', category: 'Sports & Outdoors', rating: 4.6, reviews: 189, products: 234, response: '<8h', orders: '890' },
-  { name: 'Istanbul Moda Tekstil', logo: 'https://picsum.photos/seed/supp4/80/80', banner: 'https://picsum.photos/seed/supp4b/400/120', verified: false, yrs: 7, flag: '🇹🇷', country: 'Turkey', category: "Women's Fashion", rating: 4.4, reviews: 67, products: 78, response: '<48h', orders: '450' },
-]
+// ===== 询价弹窗 =====
+const inquiryProduct = ref<any>(null)
+const inquiryMsg = ref('')
+const openInquiry = (p: any) => { inquiryProduct.value = p; inquiryMsg.value = '' }
+const submitInquiry = () => {
+  alert('Inquiry sent! (Demo — connect to inquiry API)')
+  inquiryProduct.value = null
+}
 
-// ===== 过滤 & 排序 & 分页 =====
-const filteredProducts = computed(() => {
-  let list = [...products]
-  if (route.query.q) {
-    const q = route.query.q.toLowerCase()
-    list = list.filter(p => p.name.toLowerCase().includes(q) || p.supplier.toLowerCase().includes(q))
+// ===== 收藏 =====
+const toggleWish = (p: any) => { p.wishlisted = !p.wishlisted }
+
+// ===== 购物车 =====
+const addToCart = async (p: any) => {
+  if (p.addedToCart) return
+  const token = localStorage.getItem('token')
+  if (!token) {
+    alert('Please login first')
+    return
   }
-  if (sortBy.value === 'sales') list.sort((a, b) => b.sold - a.sold)
-  else if (sortBy.value === 'price-low') list.sort((a, b) => parseFloat(a.priceMin) - parseFloat(b.priceMin))
-  else if (sortBy.value === 'price-high') list.sort((a, b) => parseFloat(b.priceMax) - parseFloat(a.priceMax))
-  else if (sortBy.value === 'rating') list.sort((a, b) => b.rating - a.rating)
-  return list
+  try {
+    await cartApi.addItem({ product_id: p.id, quantity: 1 }, token)
+    p.addedToCart = true
+    cartCount.value++
+    setTimeout(() => { p.addedToCart = false }, 2000)
+  } catch (e: any) {
+    alert('Failed to add to cart: ' + e.message)
+  }
+}
+
+// ===== 商品数据 =====
+const displayedProducts = ref<any[]>([])
+const totalCount = ref(0)
+
+// ===== 懒加载分页 =====
+const PAGE_SIZE = 20
+const currentPage = ref(1)
+const loading = ref(false)
+const hasMore = ref(true)
+
+// 加载更多商品
+const loadMoreProducts = async () => {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const catId = selectedCat.value !== 'All' ? selectedCat.value : undefined
+    const result = await productsApi.search({
+      q: route.query.q as string || undefined,
+      category_id: catId as any,
+      price_min: filters.value.priceMin || undefined,
+      price_max: filters.value.priceMax || undefined,
+      min_rating: filters.value.minRating || undefined,
+      sort: sortBy.value,
+      page: currentPage.value,
+      page_size: PAGE_SIZE,
+    })
+    // 更新分面
+    if (result.facets) {
+      dynamicFacets.value = result.facets
+    }
+    // 追加或替换
+    if (currentPage.value === 1) {
+      displayedProducts.value = result.products.map((p: any) => ({ ...p, wishlisted: false, addedToCart: false }))
+    } else {
+      displayedProducts.value.push(...result.products.map((p: any) => ({ ...p, wishlisted: false, addedToCart: false })))
+    }
+    totalCount.value = result.total
+    hasMore.value = displayedProducts.value.length < result.total
+    currentPage.value++
+  } catch (e: any) {
+    console.error('Search failed:', e)
+    // API not available yet — show empty state
+    displayedProducts.value = []
+    totalCount.value = 0
+    hasMore.value = false
+  } finally {
+    loading.value = false
+  }
+}
+
+// ===== 懒加载触发器 =====
+const loadTrigger = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+const setupObserver = () => {
+  if (observer) observer.disconnect()
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !loading.value && hasMore.value) {
+      loadMoreProducts()
+    }
+  }, { rootMargin: '200px' })
+  if (loadTrigger.value) observer.observe(loadTrigger.value)
+}
+
+onMounted(async () => {
+  await loadMoreProducts()
+  await nextTick()
+  setupObserver()
 })
 
-const totalPages = computed(() => Math.ceil(filteredProducts.value.length / perPage))
-const paginatedProducts = computed(() => {
-  const start = (currentPage.value - 1) * perPage
-  return filteredProducts.value.slice(start, start + perPage)
+watch(loadTrigger, () => {
+  if (loadTrigger.value) setupObserver()
 })
 
-// reset page when filter changes
-watch([() => route.query, sortBy, selectedCategory], () => { currentPage.value = 1 })
+// watch filter / sort changes
+watch([filters, sortBy, selectedCat], () => {
+  currentPage.value = 1
+}, { deep: true })
 </script>
 
 <style scoped>
