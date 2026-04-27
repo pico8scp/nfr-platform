@@ -1,0 +1,14 @@
+services:
+  storefront-web:
+    container_name: nfr-storefront-web
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NUXT_API_BASE: ${NUXT_API_BASE:-http://172.17.0.1:50050/api}
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/api/api-proxy}
+      NUXT_PUBLIC_CRMEB_ORIGIN: ${NUXT_PUBLIC_CRMEB_ORIGIN:-http://192.168.1.67:50050}
+      NUXT_PUBLIC_CRMEB_HOME_PAGE_ID: ${NUXT_PUBLIC_CRMEB_HOME_PAGE_ID:-1}
+    ports:
+      - "3001:3001"

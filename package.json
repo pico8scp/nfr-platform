@@ -1,0 +1,32 @@
+{
+  "name": "nexus",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "apps/mcp-1688"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "tsx watch apps/api/src/index.ts",
+    "dev:web": "cd apps/web && npm run dev",
+    "dev:mcp": "tsx apps/mcp-server/src/index.ts",
+    "test": "node --experimental-strip-types apps/api/src/__tests__/runner.node.test.js",
+    "test:watch": "vitest",
+    "test:vitest": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "h3": "^1.13.0",
+    "nanoid": "^5.0.7",
+    "sql.js": "^1.11.0",
+    "zod": "^3.23.0"
+  }
+}
